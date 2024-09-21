@@ -1,0 +1,545 @@
+####作為專題使用
+####所需library
+library(ggplot2)
+library(data.table)
+library(reshape2)
+library(gganimate)
+library(gifski)
+library(patchwork)
+library(ggrepel)
+library(dplyr)
+library(forcats)
+library(tidyr)
+library(stringr)
+library(cowplot)
+library(patchwork)
+library(png)
+library(grid)
+library(SciViews)
+library(magick)
+library(scales)
+library(gridExtra)
+library(shiny)
+####可能會用到的library
+library(gapminder)
+library(arules)
+library(arulesViz)
+library(MASS)
+###locale(encoding = "Shift_JIS") 解碼日本csv用
+##字體使用：ggthemes::theme_calc ()+theme(text = element_text(family = "Apple LiGothic")
+options(scipen = 20)#科學記號上限設定
+###檢查對比用
+View(gdp報告)
+View(recent_gdp_long)
+View(recent_gdp)
+# 移除NA值並選取最近20年的資料
+#專題用gdp <- subset(gdp報告, `Data Source` %in% c("Country Name","日本", "印度", "美国", "德国"))
+專題用gdp <- subset(gdp報告, `Data Source` %in% c("Country Name","日本", "印度", "德国"))
+
+專題用gdp <- na.omit(專題用gdp)
+recent_gdp <- 專題用gdp[,(ncol(專題用gdp)-19):ncol(專題用gdp), ]
+#row.names(recent_gdp) <- c("Year", "德國", "印度", "日本", "美國")
+row.names(recent_gdp) <- c("Year", "德國", "印度", "日本")
+# 將GDP數據轉換為長格式
+recent_gdp=t(recent_gdp)
+recent_gdp_df <- as.data.frame(recent_gdp, stringsAsFactors = FALSE)
+recent_gdp_long <- recent_gdp_df %>%
+  pivot_longer(cols = -Year, names_to = "Country", values_to = "GDP")
+
+# 對非美國的國家進行四捨五入操作
+recent_gdp_long <- recent_gdp_long %>%
+  mutate(GDP = ifelse(Country != "美國", round(as.numeric(GDP), 0), as.numeric(GDP)))
+# 將Year列轉換為數字類型
+recent_gdp_long$Year <- as.numeric(recent_gdp_long$Year)
+recent_gdp_long$GDP <- as.numeric(recent_gdp_long$GDP)
+# 找出德國GDP超過日本的交叉點
+gdp_jp_de <- recent_gdp_long %>%
+  filter(Country %in% c("日本", "德國")) %>%
+  spread(Country, GDP) %>%
+  arrange(Year)
+
+# 找到交叉點前後的兩個年份
+cross_point <- gdp_jp_de %>%
+  filter(德國 > 日本) %>%
+  slice(1)
+
+# 找到前一年的點
+previous_point <- gdp_jp_de %>%
+  filter(Year == cross_point$Year - 1)
+
+# 線性插值計算交叉點
+slope_de <- (cross_point$德國 - previous_point$德國) / (cross_point$Year - previous_point$Year)
+slope_jp <- (cross_point$日本 - previous_point$日本) / (cross_point$Year - previous_point$Year)
+# 計算交叉點的年份
+cross_year <- previous_point$Year + (previous_point$日本 - previous_point$德國) / (slope_de - slope_jp)
+# 計算交叉點的GDP值
+cross_gdp <- previous_point$日本 + slope_jp * (cross_year - previous_point$Year)
+# 使用ggplot繪製gdp折線圖並添加交叉點標註
+gdp對比 <- ggplot(recent_gdp_long, aes(x = Year, y = GDP, color = Country, group = Country)) +
+geom_line(size = 1) +
+  geom_point(size = 2) +
+  labs(
+    title = "日本、印度、德國 最近20年GDP對比",
+    x = "年份",
+    y = "GDP（單位：億美元）",
+    color = "國家",
+    caption = "資料來源: World Bank"
+  ) +
+  theme_minimal() +
+  theme(
+    text = element_text(family = "Apple LiGothic"),
+    plot.title = element_text(face = "bold", vjust = -1),  # 將標題設為粗體並移到圖表上方
+    legend.position = "bottom",
+    axis.title.y = element_text(angle = 0, vjust = 0.5)
+  ) +
+  scale_x_continuous(limits = c(2004, 2025))+
+  scale_y_continuous(labels = label_number(scale = 0.00000001, big.mark = ",")) +  # 將數字轉為億美元顯示格式
+  annotate("point", x = cross_year, y = cross_gdp, size = 3, color = "#FF5809") +  # 標註交叉點
+  annotate("label", x = cross_year, y = cross_gdp,
+           label = "交叉點", size = 3, color = "#FF5809",
+           hjust = 0.45, vjust = -1.5, family = "Apple LiGothic")  # 添加文字標註
+
+###
+gdp對比圖=image_read("GDP對比.png")
+匯率 <- image_read("R/JPYUSD.png")
+gdp對比
+###cpi處理檢查用的view
+View(japan_cpi_selected)
+###cpi處理
+專題用cpi <- subset(cpi報告, `Data Source` %in% c("Country Name","Japan", "India", "United States", "Germany"))
+專題用cpi <- na.omit(專題用cpi)
+recent_cpi <- 專題用cpi[,(ncol(專題用cpi)-19):ncol(專題用cpi)]
+row.names(recent_cpi) <- c("Year", "德國", "印度", "日本", "美國")
+###轉寬格式
+recent_cpi=t(recent_cpi)
+recent_cpi_df <- as.data.frame(recent_cpi, stringsAsFactors = FALSE)
+recent_cpi_long <- recent_cpi_df %>%
+  pivot_longer(cols = -Year, names_to = "Country", values_to = "CPI")
+###將資料轉為數值型別
+recent_cpi_long$CPI <- as.numeric(recent_cpi_long$CPI)
+recent_cpi_long$Year <- as.numeric(recent_cpi_long$Year)
+# 使用ggplot繪製cpi折線圖
+cpi對比=ggplot(recent_cpi_long, aes(x = Year, y = CPI, color = Country, group = Country)) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  labs(title = "日本、印度、美國、德國 最近20年CPI對比",
+       x = "年份",
+       y = "CPI（單位：%）",
+       color = "國家",
+       caption = "資料來源: World Bank") +
+  theme_minimal() +
+  theme(text = element_text(family = "Apple LiGothic"),
+        legend.position = "bottom",
+        axis.title.y = element_text(angle = 0, vjust = 0.5)) +
+  scale_x_continuous(limits = c(2004, 2025))+
+  scale_y_continuous(breaks = seq(-1, max(recent_cpi_long$CPI, na.rm = TRUE), by = 2),  # 設定刻度以2為單位
+                     limits = c(-2, max(recent_cpi_long$CPI, na.rm = TRUE) + 1)) +  # 起始點從-1開始
+  geom_hline(yintercept = 5, color = "red", linetype = "dashed")+ # 添加嚴重通脹紅色虛線
+  annotate("label", x = 2015, y = 6,
+         label = "嚴重通脹", size = 3, color = "red",
+         hjust = -0.1, family = "Apple LiGothic")
+###檢查用的view
+View(專題用失業率)
+###失業率處理
+專題用失業率 <- subset(失業率報告, `Data Source` %in% c("Country Name","日本", "印度", "美国", "德国"))
+專題用失業率 <- 專題用失業率[, colSums(is.na(專題用失業率)) == 0]
+recent_RU <- 專題用cpi[,(ncol(專題用cpi)-19):ncol(專題用cpi)]
+row.names(recent_RU) <- c("Year", "德國", "印度", "日本", "美國")
+###轉寬格式
+recent_RU=t(recent_RU)
+recent_RU_df <- as.data.frame(recent_RU, stringsAsFactors = FALSE)
+recent_RU_long <- recent_RU_df %>%
+  pivot_longer(cols = -Year, names_to = "Country", values_to = "RU")
+###將資料轉為數值型別
+recent_RU_long$RU <- as.numeric(recent_RU_long$RU)
+recent_RU_long$Year <- as.numeric(recent_RU_long$Year)
+# 使用ggplot繪製失業率折線圖
+失業率對比=ggplot(recent_RU_long, aes(x = Year, y = RU, color = Country, group = Country)) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  labs(title = "日本、印度、美國、德國 最近20年失業率對比",
+       x = "年份",
+       y = "失業率（單位：%）",
+       color = "國家",
+       caption = "資料來源: World Bank") +
+  theme_minimal() +
+  theme(text = element_text(family = "Apple LiGothic"),
+        legend.position = "bottom",
+        axis.title.y = element_text(angle = 0, vjust = 0.5))+
+  scale_x_continuous(limits = c(2004, 2025))+
+  scale_y_continuous(breaks = seq(-1, max(recent_RU_long$RU, na.rm = TRUE), by = 2),  # 設定刻度以2為單位
+                     limits = c(-2, max(recent_RU_long$RU, na.rm = TRUE) + 1))+   # 起始點從-1開始
+  geom_hline(yintercept = 8, color = "red", linetype = "dashed")+
+  annotate("label", x = 2015, y = 9,
+         label = "失業率過高", size = 3, color = "red",
+         hjust = -0.1, family = "Apple LiGothic")
+print(失業率對比)
+###檢查用的view
+View(日本cpi)
+# 日本cpi處理
+日本cpi <- subset(cpirev, `四半期` %in% c("Quarterly","2024.3", "2024.2", "2024.1"))
+日本cpi <- 日本cpi[, colSums(is.na(日本cpi)) == 0]
+colnames(日本cpi) <- c(日本cpi[1,])
+colnames(日本cpi)[3] <- c("NA_Weighted_Median")
+日本cpi[,8]
+###整理行列
+colnames(日本cpi)
+japan_cpi_selected <- dplyr::select(日本cpi,
+                                    Quarterly = Quarterly,
+                                    Weighted_Median = 'Weighted median(y/y % chg.)',
+                                    Share_Decreasing = 'Share of decreasing items(%)',
+                                    Share_Increasing = 'Share of increasing items(%)',
+                                    Diffusion_Index = 'Diffusion index(% points)'
+)
+
+japan_cpi_selected = japan_cpi_selected[c(2,3,4),]
+# 將資料轉為long格式
+japan_cpi_long <- japan_cpi_selected %>%
+  pivot_longer(cols = -Quarterly, names_to = "Indicator", values_to = "Value")
+###將資料轉為數值型別
+japan_cpi_long$Value <- as.numeric(japan_cpi_long$Value)
+japan_cpi_long$Quarterly <- as.numeric(japan_cpi_long$Quarterly)
+# 加權中位數圖表
+加權中位數=ggplot(japan_cpi_long %>% filter(Indicator == "Weighted_Median"),
+  aes(x = Quarterly, y = Value)) +
+  geom_line(size = 1, color = "blue") +
+  geom_point(size = 2, color = "blue") +
+  labs(title = "加權中位數", x = "季度",
+       y = "指標值(%)") +
+  theme_minimal() +
+  theme(
+    text = element_text(family = "Apple LiGothic"),
+    legend.position = "bottom",
+    axis.title.y = element_text(angle = 0, vjust = 0.5)
+  )+
+  scale_x_continuous(breaks = c(2024.1, 2024.2, 2024.3), labels = c("2024Q1", "2024Q2", "2024Q3"))
+# 漲幅項目圖表
+漲幅項目 <- ggplot(japan_cpi_long %>%
+                 filter(Indicator %in% c("Share_Increasing", "Share_Decreasing")),
+               aes(x = Quarterly, y = Value, color = Indicator)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  labs(title = "價格上升與下降項目之比例",
+       x = "季度", y = "指標值(%)",
+       color = "指標") +
+  theme_minimal() +
+  theme(
+    text = element_text(family = "Apple LiGothic"),
+    legend.position = "bottom",
+    axis.title.y = element_text(angle = 0, vjust = 0.5)
+  ) +
+  scale_x_continuous(breaks = c(2024.1, 2024.2, 2024.3),
+                     labels = c("2024Q1", "2024Q2", "2024Q3")) +
+  scale_color_manual(values = c("Share_Increasing" = "red", "Share_Decreasing" = "blue"),
+                     labels = c("Share_Increasing" = "上升比例", "Share_Decreasing" = "下降比例"))
+print(漲幅項目)
+# 擴散指數圖表
+擴散指數=ggplot(japan_cpi_long %>% filter(Indicator == "Diffusion_Index"),
+                               aes(x = Quarterly, y = Value)) +
+  geom_line(size = 1, color = "red") +
+  geom_point(size = 2, color = "red") +
+  labs(title = "擴散指數", x = "季度",
+       y = "指標值(%)") +
+  theme_minimal() +
+  theme(
+    text = element_text(family = "Apple LiGothic"),
+    legend.position = "bottom",
+    axis.title.y = element_text(angle = 0, vjust = 0.5)
+  )+
+  scale_x_continuous(breaks = c(2024.1, 2024.2, 2024.3), labels = c("2024Q1", "2024Q2", "2024Q3"))
+
+# 組合圖表
+日本CPI指標 <- (擴散指數 + 漲幅項目) / 加權中位數+
+  plot_annotation(
+    caption = "資料來源: 日本銀行",
+    title = "2024日本CPI重要指標之變化",
+    theme = theme(
+      legend.position = "left",
+      plot.title = element_text(size = 15, face = "bold"),
+      plot.margin = margin(20, 20, 20, 20),
+      text = element_text(family = "Apple LiGothic")
+    )
+)
+print(日本CPI指標)
+###檢查用的View
+View(selected_日本gdp)
+###gdp相關圖表
+日本gdp <- gaku_jk2421
+colnames(日本gdp )
+###資料處理
+日本gdp <- 日本gdp[c(1:6,126:128),]
+for (i in 1:ncol(日本gdp)) {
+  if (startsWith(names(日本gdp)[i], "...")) {
+    # 找到第一個非NA值
+    first_non_na <- 日本gdp[[i]][!is.na(日本gdp[[i]])][1]
+
+    # 如果找到非NA值,則用它來重命名列
+    if (!is.na(first_non_na)) {
+      names(日本gdp)[i] <- first_non_na
+    }
+  }
+}
+# 找出非全NA的列
+cols_to_keep <- colSums(!is.na(日本gdp)) > 0
+
+# 只保留非全NA的列
+日本gdp<- 日本gdp[, cols_to_keep]
+
+selected_日本gdp <- dplyr::select(
+    日本gdp,
+    Quarterly = `実質季節調整系列`,  # 假設季度信息在第一列
+    Real_GDP_Growth = `(単位:2015暦年連鎖価格、10億円)`,  # 選擇GDP列
+    Private_Consumption = `民間最終消費支出`,  # 選擇私人消費列
+    Gross_Fixed_Capital_Formation = `総固定資本形成`,  # 選擇固定資本形成列
+    Exports = `輸出`,  # 選擇出口列
+    Net_Exports = `財貨・サービス`,  # 選擇淨出口列
+    Income_from_Other_World = `海外からの所得`
+  )
+selected_日本gdp=selected_日本gdp[c(7:9),]
+selected_日本gdp[,2:7] <- apply(selected_日本gdp[,2:7], 2, function(x) {
+  as.numeric(gsub(",", "", x))
+})
+selected_日本gdp[,1]=c("2023 Q3","2024 Q1","2024 Q2")
+
+selected_日本gdp <- selected_日本gdp %>%
+  mutate(
+    Other = Real_GDP_Growth - Private_Consumption - Gross_Fixed_Capital_Formation - Exports
+  )
+
+日本gdp_long <- selected_日本gdp %>%
+  pivot_longer(
+    cols = -Quarterly,
+    names_to = "Component",
+    values_to = "Value"
+  ) %>%
+  group_by(Quarterly) %>%
+  mutate(Percentage = Value /Value[Component == "Real_GDP_Growth"])
+# 將指標名稱轉換為中文
+日本gdp_long <- 日本gdp_long %>%
+  mutate(Component = case_when(
+    Component == "Private_Consumption" ~ "民間消費支出",
+    Component == "Gross_Fixed_Capital_Formation" ~ "固定資本形成",
+    Component == "Exports" ~ "出口",
+    Component == "Net_Exports" ~ "淨出口",
+    Component == "Other" ~ "其他",
+    Component == "Income_from_Other_World" ~ "海外所得",
+    TRUE ~ Component
+  ))
+
+# 繪製2024 Q1的圓餅圖
+jpq1gdp=ggplot(subset(日本gdp_long, Quarterly == "2024 Q1" & !Component %in% c("海外所得", "Real_GDP_Growth")), aes(x = "", y = Value, fill = Component)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar("y") +
+  labs(
+    title = "日本2024 Q1 GDP 組成",
+    fill = "主要佔比",
+    x = "",
+    y = ""
+  ) +
+  geom_label_repel(aes(label = percent(Percentage)),
+                   position = position_stack(vjust = 0.5),
+                   size = 5,
+                   box.padding = 0.5,
+                   point.padding = 0.3,
+                   force = 1.5,
+                   max.overlaps = 10,
+                   color = "black",
+                   fill = "white",
+                   label.size = 0.5) +
+  theme_minimal() +
+  theme(
+    text = element_text(family = "Apple LiGothic"),
+    axis.title.y = element_text(angle = 0, vjust = 0.5),
+    axis.text.x = element_blank()
+  ) +
+  scale_fill_manual(values = c("民間消費支出" = "#6A6AFF",
+                               "固定資本形成" = "#2894FF",
+                               "出口" = "#00FFFF",
+                               "淨出口" = "#02F78E",
+                               "其他" = "grey"))
+print(jpq1gdp)
+###2024Q2圓餅圖
+jpq2gdp=ggplot(subset(日本gdp_long, Quarterly == "2024 Q2" & !Component %in% c("海外所得", "Real_GDP_Growth")), aes(x = "", y = Value, fill = Component)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar("y") +
+  labs(
+    title = "日本2024 Q2 GDP 組成",
+    fill = "主要佔比",
+    x = "",
+    y = "",
+    legend.position = "bottom"
+  ) +
+  geom_label_repel(aes(label = percent(Percentage)),
+                   position = position_stack(vjust = 0.5),
+                   size = 5,
+                   box.padding = 0.5,
+                   point.padding = 0.3,
+                   force = 1.5,
+                   max.overlaps = 10,
+                   color = "black",
+                   fill = "white",
+                   label.size = 0.5) +
+  theme_minimal() +
+  theme(
+    text = element_text(family = "Apple LiGothic"),
+    axis.title.y = element_text(angle = 0, vjust = 0.5),
+    axis.text.x = element_blank()
+  ) +
+  scale_fill_manual(values = c("民間消費支出" = "#6A6AFF",
+                               "固定資本形成" = "#2894FF",
+                               "出口" = "#00FFFF",
+                               "淨出口" = "#02F78E",
+                               "其他" = "grey"))
+print()
+###
+jpgdpline=ggplot(日本gdp_long %>% filter(Component == "Real_GDP_Growth"),
+  aes(x = Quarterly, y = Value, group = 1)
+) +
+  geom_line(linewidth = 1.2, color = "#2894FF") +
+  geom_point(size = 2.5, color = "#6A6AFF") +
+  labs(
+    title = "2024年日本GDP變化",
+    x = "季度",
+    y = "GDP(十億日元)",
+    color = "組成部分"
+  ) +
+  scale_y_continuous(limits = c(550000, 560000)) +
+  theme_minimal() +
+  theme(
+    text = element_text(family = "Apple LiGothic"),
+    legend.position = "left",
+    axis.title.y = element_text(angle = 0, vjust = 0.5)
+  )
+jpnetline=ggplot(日本gdp_long %>% filter(Component == "淨出口"),
+                 aes(x = Quarterly, y = Value, group = 1)
+) +
+  geom_line(linewidth = 1.2, color = "#2894FF") +
+  geom_point(size = 2.5, color = "#6A6AFF") +
+  labs(
+    title = "2024年日本淨出口變化",
+    x = "季度",
+    y = "淨出口 (十億日元)"
+  ) +
+  scale_y_continuous(limits = c(0, 6000)) +
+  theme_minimal() +
+  theme(
+    text = element_text(family = "Apple LiGothic"),
+    legend.position = "left",
+    axis.title.y = element_text(angle = 0, vjust = 0.5)
+  )
+
+# 組合圖表，調整標題和布局
+日本GDP指標 <- (jpgdpline+jpnetline) / (jpq1gdp + jpq2gdp) +
+  plot_layout(ncol = 1, heights = c(4, 8, 1), guides = "collect") +
+  plot_annotation(
+    caption = "資料來源: 日本內閣府 經濟社會研究所",
+    title = "2024 日本GDP重要指標之變化",
+    theme = theme(
+      legend.position = "left",
+      plot.title = element_text(size = 18, face = "bold"),
+      plot.margin = margin(20, 20, 20, 20),
+      text = element_text(family = "Apple LiGothic")
+    )
+  )
+
+# 調整顯示
+print(日本GDP指標)
+###最終呈現
+# UI 部分
+jpui <- fluidPage(
+  titlePanel("2024 日本經濟指標分析儀表板"),
+  sidebarLayout(
+    sidebarPanel(
+      h4("指標選擇"),
+      selectInput("indicator", "選擇指標：",
+                  choices = c("各國GDP" = "gdp",
+                              "各國CPI" = "cpi",
+                              "各國失業率" = "unemployment",
+                              "日本相關指標" = "japan_related"))  # 新增分類選項
+    ),
+
+    mainPanel(
+      tabsetPanel(
+        tabPanel("說明圖表",
+                 uiOutput("dynamicPlots")),  # 動態顯示圖表
+        tabPanel("補充圖片",
+                 uiOutput("imageDisplay"))  # 動態顯示圖片
+      )
+    )
+  )
+)
+
+# Server 部分
+jpserver <- function(input, output) {
+
+  # 根據選擇的指標動態顯示相應的圖表
+  output$dynamicPlots <- renderUI({
+    if (input$indicator == "gdp") {
+      plotOutput("gdpPlot")
+    } else if (input$indicator == "cpi") {
+      plotOutput("cpiPlot")
+    } else if (input$indicator == "unemployment") {
+      plotOutput("unemploymentPlot")
+    } else if (input$indicator == "japan_related") {
+      tagList(
+        plotOutput("jpgdpPlot"),  # 日本 GDP 指標
+        plotOutput("jpcpiPlot")   # 日本 CPI 指標
+      )
+    }
+  })
+
+  # 根據選擇的指標顯示相應的圖片
+  output$imageDisplay <- renderUI({
+    switch(input$indicator,
+           "gdp" = tagList(plotOutput("jpyusdImage")), # GDP 分類下的圖片
+           "japan_related" = tagList(
+             plotOutput("jpstockImage"),  # 日本股票買賣超
+             plotOutput("ni225Image"),       # NI225
+             plotOutput("us10yImage"),  # 10年美債利差日圓
+             plotOutput("jpirImage"),
+             plotOutput("usirImage")
+           )
+    )
+  })
+
+  # 繪製日本相關指標的圖表
+  output$jpgdpPlot <- renderPlot({日本GDP指標})
+  output$jpcpiPlot <- renderPlot({日本CPI指標})
+  output$gdpPlot <- renderPlot({ gdp對比 })
+  output$cpiPlot <- renderPlot({ cpi對比 })
+  output$unemploymentPlot <- renderPlot({ 失業率對比 })
+  output$ni225Image <- renderImage({
+    list(src = normalizePath(file.path("www", "NI225.png")),
+         width = "100%",
+         height = "100%")
+  }, deleteFile = FALSE)
+  output$jpyusdImage <- renderImage({
+    list(src = normalizePath(file.path("www", "JPYUSD.png")),
+         width = "100%",
+         height ="100%")
+  }, deleteFile = FALSE)
+  output$us10yImage <- renderImage({
+    list(src = normalizePath(file.path("www", "10年美債利差日圓.jpg")),
+         width = "100%",
+         height = "100%")
+  }, deleteFile = FALSE)
+  output$jpstockImage <- renderImage({
+    list(src = normalizePath(file.path("www", "日本股票買賣超.jpg")),
+         width = "100%",
+         height = "100%")
+  }, deleteFile = FALSE)
+  output$jpirImage <- renderImage({
+    list(src = normalizePath(file.path("www", "JPINTR.png")),
+         width = "100%",
+         height = "100%")
+  }, deleteFile = FALSE)
+  output$usirImage <- renderImage({
+    list(src = normalizePath(file.path("www", "USINTR.png")),
+         width = "100%",
+         height = "100%")
+  }, deleteFile = FALSE)
+}
+
+# 執行 Shiny 應用程式
+shinyApp(ui = jpui, server = jpserver)
+
